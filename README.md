@@ -28,7 +28,8 @@ Cada escolha influencia o julgamento final de sua existência, e apenas os mais 
 ---
 
 ### Tecnologias Utilizadas (Frameworks, bibliotecas, etc.)
-*   **Javascript:**: Kaboom.js e KAPLAY.js
+*   **Javascript:** para colocar funcionalidades e mecânicas dentro do jogo
+*   **bibliotecas:**Kaboom.js e KAPLAY.js
 *   **HTML**
 *   **CSS**
 *   **VueJS**
