@@ -128,8 +128,10 @@ class PlayGame extends Phaser.Scene {
 
         // bullet Vs enemy collision
         this.physics.add.collider(this.bulletGroup, this.enemyGroup, (bullet, enemy) => {
-            // Cast to 'any' to access 'body' if needed, or ensure proper Phaser types
-            // Assuming killAndHide is sufficient
+            const coin = this.physics.add.sprite(enemy.x, enemy.y, 'coin');
+            coin.setDisplaySize(30, 30);
+            coin.setSize(30, 30);
+            this.coinGroup.add(coin);
             this.bulletGroup.killAndHide(bullet);
             (bullet.body).checkCollision.none = true; // Make bullet non-collidable after hit
             this.enemyGroup.killAndHide(enemy);
@@ -140,6 +142,12 @@ class PlayGame extends Phaser.Scene {
         this.physics.add.collider(this.player, this.enemyGroup, () => {
             this.scene.restart();
         });
+
+        // player Vs coin colission
+        this.physics.add.collider(this.player, this.coinGroup, (player, coin) => {
+            this.coinGroup.killAndHide(coin);
+            coin.body.checkCollision.none = true;
+        })
     }
 
     // method to be called at each frame
@@ -166,6 +174,15 @@ class PlayGame extends Phaser.Scene {
         // set player velocity according to movement direction
         this.player.setVelocity(movementDirection.x * GameOptions.playerSpeed, movementDirection.y * GameOptions.playerSpeed);
 
+        // get coins on collide
+        const coinsInCircle = this.physics.overlapCirc(this.player.x, this.player.y, GameOptions.magnetRadius, true, true);
+        coinsInCircle.forEach((body) => {
+            const bodySprite = body.gameObject;
+            if (bodySprite.texture.key == 'coin'){
+                this.physics.moveToObject(bodySprite, this.player, 500);
+            }
+        })
+        
         // move enemies towards player
         this.enemyGroup.getChildren().forEach((enemy) => {
             // Ensure enemy is active before moving
