@@ -1,5 +1,5 @@
 # DO NOT MAKE A MISTAKE
-teste
+
 ---
 
 ### Resumo do Enredo
@@ -12,11 +12,11 @@ Nesta aventura, o jogador poderá escolher entre quatro personagens com questõe
 ### Objetivo do Jogador
 
 Sobreviver o maior tempo possível dentro do coliseu entre a vida e a morte, enfrentando hordas crescentes de inimigos enquanto evolui seu personagem, descobre eventos únicos e busca compreender o destino de sua alma.
-Cada escolha influencia o julgamento final de sua existência, e apenas os mais fortes — e mais sábios — alcançarão a redenção... ou cairão na corrupção etern
+Cada escolha influencia o julgamento final de sua existência, e apenas os mais fortes — e mais sábios — alcançarão a redenção... ou cairão na corrupção eterna
 
 ---
 
-### Regras Básicas E Funcionalidade do Jogo
+### Regras Básicas
 
 * **Escolha de Herói:** Quatro personagens jogáveis (Paladino, Bardo, Ladina, Arqueira), cada um com questões pendentes e motivações únicas.
 * **Combate Roguelike:** Hordas de inimigos que ficam progressivamente mais fortes.
@@ -26,4 +26,10 @@ Cada escolha influencia o julgamento final de sua existência, e apenas os mais 
 * **Julgamento Moral:** Escolhas que influenciam o destino da alma do herói (redenção ou corrupção).
 
 ---
+
+### Tecnologias Utilizadas (Frameworks, bibliotecas, etc.)
+*   **Javascript:** para colocar funcionalidades e mecânicas dentro do jogo, usaremos as bibliotecas: Kaboom.js e KAPLAY.js
+*   **HTML**
+*   **CSS**
+*   **VueJS**
 
