@@ -27,10 +27,10 @@ Cada escolha influencia o julgamento final de sua existência, e apenas os mais 
 
 ---
 
-### Tecnologias Utilizadas (Frameworks, bibliotecas, etc.)
-*   **Javascript:** para colocar funcionalidades e mecânicas dentro do jogo
-*   **bibliotecas:**Kaboom.js e KAPLAY.js
-*   **HTML**
-*   **CSS**
+### Stack Tecnológica
+Tecnologias, frameworks e bibliotecas utilizadas no desenvolvimento do projeto:
+*   **Javascript:** Responsável pela implementação das mecânicas e funcionalidades principais do jogo.
+*   **Bibliotecas:** Kaboom.js e KAPLAY.js
+*   **HTML e CSS:**
 *   **VueJS**
 
