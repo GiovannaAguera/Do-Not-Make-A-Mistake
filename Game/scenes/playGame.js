@@ -3,110 +3,233 @@
 // PlayGame class extends Phaser.Scene class
 class PlayGame extends Phaser.Scene {
 
+    // --- Properties ---
     controlKeys;
     player;
     enemyGroup;
     bulletGroup;
+    coinGroup;
 
+    // Player Stats
+    playerHP = 5; // Initial health points
+    isInvulnerable = false; // Invulnerability status
+
+    // UI Elements
+    hpText = null; // Text object to display HP
+    healthBarBg; // Health bar background graphic
+    healthBar; // Health bar graphic
+    healthBarContainer; // Container for health bar graphics
+    timeBarBg; // Time bar background graphic
+    timeBar; // Time bar graphic
+    timeText = null; // Text object to display time
+
+    // Game Timer
+    totalGameTime = 900000; // 15 minutes in milliseconds
+    elapsedTime = 0;
+
+    // --- Constructor ---
     constructor(){
         super({
             key: 'PlayGame'
         });
-    this.playerHP = 5; // Quantidade inicial de vida
-    this.hpText = null; // Objeto de texto para exibir a vida
-
-    this.totalGameTime = 15 * 60 * 1000; // 15 minutos em milissegundos
-    this.elapsedTime = 0;
-    this.timeBar = null;
-    this.timeText = null;
-    
     }
 
+    // --- Phaser Scene Methods ---
+    
     // method to be called once the instance has been created
     create() {
+        // Camera setup
+        this.cameras.main.setScroll(0, 0); // Lock scrolling at the top
 
-        this.cameras.main.setScroll(0, 0); // Trava a rolagem no topo
-
-        // add player, enemies group and bullets group
+        // Game Objects
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
         this.enemyGroup = this.physics.add.group();
         this.bulletGroup = this.physics.add.group();
-        // ADICIONA A CAMERA
-        this.cameras.main.startFollow(this.player);
         this.coinGroup = this.physics.add.group();
-        
-         // Cria a barra de tempo no topo da tela
+
+        // Camera follows the player
+        this.cameras.main.startFollow(this.player);
+
+        // UI Creation
+        this.createTimeBar();
+        this.createHealthBar();
+
+        // Input Handling
+        this.setupInput();
+
+        // Timed Events
+        this.setupTimers();
+
+        // Collisions
+        this.setupCollisions();
+
+        // Initial UI Update
+        this.updateHealthBar(); // Initialize health bar appearance
+        this.updateTimeBar(); // Initialize time bar appearance
+
+        // Set depths (z-index) - Ensure enemies are below the time bar
+        this.timeBarBg.setDepth(1000);
+        this.timeBar.setDepth(1001);
+        this.timeText.setDepth(1002);
+        // if (this.timeBarBack) this.timeBarBack.setDepth(999); // timeBarBack is not defined in the original code
+        this.enemyGroup.setDepth(100); // Ensure enemies are below the time bar
+    }
+
+    // method to be called at each frame
+    update(time, delta) {
+        // Update UI positions
+        // Ensure player exists before updating health bar container position
+        if (this.player) {
+            this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
+        }
+
+        // Player Movement
+        this.handlePlayerMovement();
+
+        // Coin Collection (Magnet effect)
+        this.collectCoins();
+
+        // Enemy Movement
+        this.moveEnemies();
+
+        // Game Timer Update
+        this.updateGameTimer(delta);
+    }
+
+    // --- Custom Methods ---
+
+    createTimeBar() {
         const barWidth = this.cameras.main.width * 0.9;
-        const barHeight = 20;
-        const barX = this.cameras.main.centerX;
+        const barHeight = 19;
+        const barX = this.cameras.main.width * 0.05; // Left-aligned (5% from left)
         const barY = 30;
 
-        // Barra de fundo (cinza)
+        // Background bar (gray - static)
         this.timeBarBg = this.add.graphics()
             .fillStyle(0x333333, 1)
-            .fillRect(-barWidth/2, 0, barWidth, barHeight)
+            .fillRect(0, 0, barWidth, barHeight)
             .setPosition(barX, barY)
-            .setScrollFactor(0); // Fixa na tela
+            .setScrollFactor(0);
 
-        // Barra de progresso (azul)
+        // Progress bar (blue - will grow from left to right)
         this.timeBar = this.add.graphics()
             .fillStyle(0x00a8ff, 1)
-            .fillRect(-barWidth/2, 0, barWidth, barHeight)
+            .fillRect(0, 0, 0, barHeight) // Start with width 0
             .setPosition(barX, barY)
-            .setScrollFactor(0); // Fixa na tela
+            .setScrollFactor(0);
 
-        // Texto do tempo
-        this.timeText = this.add.text(barX, barY - 8, '15:00', { 
+        // Time text
+        this.timeText = this.add.text(this.cameras.main.centerX, barY - 8, '15:00', { 
             fontSize: '22px',
             fill: '#ffffff',
             fontFamily: 'Arial',
             fontWeight: 'bold'
         })
         .setOrigin(0.5)
-        .setScrollFactor(0); // Fixa na tela
+        .setScrollFactor(0);
+    }
 
-          // Configura profundidades (z-index)
-        // INIMIGOS FICAM ABAIXO DA BARRA DE TEMPO
-        this.timeBarBg.setDepth(1000);
-        this.timeBar.setDepth(1001);
-        this.timeText.setDepth(1002);
-        if (this.timeBarBack) this.timeBarBack.setDepth(999);
+    updateTimeBar() {
+        const barWidth = this.cameras.main.width * 0.9;
+        const timePercent = this.elapsedTime / this.totalGameTime; // Changed from 1 - ...
 
-        // Garante que inimigos fiquem ABAIXO da barra
-        this.enemyGroup.setDepth(100);
-        
-        this.updateTimeBar(); // Inicializa a barra
+        this.timeBar.clear()
+            .fillStyle(0x00a8ff, 1);
 
+        // Change color to red in the last 30 seconds
+        if ((this.totalGameTime - this.elapsedTime) < 30000) {
+            this.timeBar.fillStyle(0xff0000, 1);
+        }
 
-        // Cria a barra de vida
-        this.healthBarBg = this.add.graphics(); // Fundo da barra (cinza)
-        this.healthBar = this.add.graphics();   // Barra vermelha (vida atual)
+        this.timeBar.fillRect(0, 0, barWidth * timePercent, 20);
 
-        // Posiciona as barras acima do jogador
-        this.healthBarContainer = this.add.container(this.player.x, this.player.y - 40);
+        // Update text
+        const remainingTime = this.totalGameTime - this.elapsedTime;
+        const minutes = Math.floor(remainingTime / 60000);
+        const seconds = Math.floor((remainingTime % 60000) / 1000);
+        this.timeText.setText(`${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+    }
+
+    createHealthBar() {
+        const barWidth = 80;  // Bar width
+        const barHeight = 10; // Bar height
+
+        this.healthBarBg = this.add.graphics(); // Background bar (gray)
+        this.healthBar = this.add.graphics();   // Red bar (current health)
+
+        // Position the bars above the player
+        // This will be updated in the update loop to follow the player
+        this.healthBarContainer = this.add.container(0, 0);
         this.healthBarContainer.add([this.healthBarBg, this.healthBar]);
 
-        // Atualiza a aparência inicial da barra
-        this.updateHealthBar();
-
-        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {  // X: 30, Y: 60 (abaixo da barra)
+        // HP Text
+        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {  // Positioned below the time bar
             fontSize: '24px',
             fill: '#fff',
             fontFamily: 'Arial',
-            backgroundColor: '#000000AA', // Fundo semi-transparente
+            backgroundColor: '#000000AA', // Semi-transparent background
             padding: { left: 10, right: 10, top: 5, bottom: 5 }
         })
         .setScrollFactor(0)
-        .setDepth(1003); // Garante que fique acima de tudo
-    
-    // Modifique a colisão player vs inimigo:
-    this.physics.add.collider(this.player, this.enemyGroup, () => {
-        this.takeDamage(); // Substitui o restart direto por uma função de dano
-    });
+        .setDepth(1003); // Ensure it's above everything else
+    }
 
-        // set keyboard controls
-        // Note: Direct assignment to Phaser.Input.Keyboard.KeyboardPlugin might not be intended.
-        // Assuming the intention was to get the keyboard plugin instance.
+    updateHealthBar() {
+        const barWidth = 80;  // Bar width
+        const barHeight = 10; // Bar height
+        const healthPercent = this.playerHP / 5; // Calculate health percentage (assuming max HP is 5)
+
+        // Clear graphics
+        this.healthBarBg.clear();
+        this.healthBar.clear();
+
+        // Draw background bar (gray)
+        this.healthBarBg.fillStyle(0x333333, 1); // Dark gray
+        this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight); // Centered
+
+        // Draw red health bar
+        this.healthBar.fillStyle(0xff0000, 1); // Red
+        this.healthBar.fillRect(-barWidth/2, 0, barWidth * healthPercent, barHeight);
+
+        // Add white border (optional)
+        this.healthBarBg.lineStyle(1, 0xffffff, 1);
+        this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
+    }
+
+    takeDamage() {
+        if (this.isInvulnerable) return; // Ignore damage if invulnerable
+
+        this.playerHP--;
+        this.hpText.setText(`HP: ${this.playerHP}`);
+        this.updateHealthBar(); // Update health bar visual
+
+        // Visual damage effect
+        this.isInvulnerable = true;
+        this.player.setTint(0xff0000); // Turn red
+
+        // Piscar o jogador (Blink the player)
+        const blinkInterval = this.time.addEvent({
+            delay: 100,
+            callback: () => {
+                this.player.alpha = this.player.alpha === 1 ? 0.5 : 1;
+            },
+            repeat: 10
+        });
+
+        // Volta ao normal após 1 segundo (Return to normal after 1 second)
+        this.time.delayedCall(1000, () => {
+            this.isInvulnerable = false;
+            this.player.clearTint();
+            this.player.setAlpha(1);
+            blinkInterval.destroy();
+        });
+
+        if (this.playerHP <= 0) {
+            this.gameOver();
+        }
+    }
+
+    setupInput() {
         const keyboard = this.input.keyboard;
         this.controlKeys = keyboard.addKeys({
             'up'    : Phaser.Input.Keyboard.KeyCodes.W,
@@ -114,71 +237,68 @@ class PlayGame extends Phaser.Scene {
             'down'  : Phaser.Input.Keyboard.KeyCodes.S,
             'right' : Phaser.Input.Keyboard.KeyCodes.D
         });
-
-        // set outer rectangle and inner rectangle; enemy spawn area is between them
-        const outerRectangle = new Phaser.Geom.Rectangle(0, 0, GameOptions.gameSize.width, GameOptions.gameSize.height);
-        const innerRectangle = new Phaser.Geom.Rectangle(GameOptions.gameSize.width / 4, GameOptions.gameSize.height / 4, GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2);
-
-        // timer event to add enemies
-        // MUDANÇAS PARA SPAWNAR INIMIGOS NA REGIÃO DA CAMERA
-        this.time.addEvent({
-        delay: GameOptions.enemyRate,
-        loop: true,
-    callback: () => {
-        // Obtém os limites da câmera
-        const camera = this.cameras.main;
-        const cameraBounds = new Phaser.Geom.Rectangle(
-            camera.scrollX,
-            camera.scrollY,
-            camera.width,
-            camera.height
-        );
-
-        // Cria uma área um pouco maior que a câmera para spawn (opcional)
-        const spawnArea = new Phaser.Geom.Rectangle(
-            cameraBounds.x - 100,
-            cameraBounds.y - 100,
-            cameraBounds.width + 200,
-            cameraBounds.height + 200
-        );
-
-        // Escolhe um lado aleatório (cima, baixo, esquerda, direita)
-        const side = Phaser.Math.Between(0, 3);
-        let spawnPoint;
-
-        switch(side) {
-            case 0: // Topo
-                spawnPoint = new Phaser.Geom.Point(
-                    Phaser.Math.Between(spawnArea.left, spawnArea.right),
-                    spawnArea.top
-                );
-                break;
-            case 1: // Direita
-                spawnPoint = new Phaser.Geom.Point(
-                    spawnArea.right,
-                    Phaser.Math.Between(spawnArea.top, spawnArea.bottom)
-                );
-                break;
-            case 2: // Baixo
-                spawnPoint = new Phaser.Geom.Point(
-                    Phaser.Math.Between(spawnArea.left, spawnArea.right),
-                    spawnArea.bottom
-                );
-                break;
-            case 3: // Esquerda
-                spawnPoint = new Phaser.Geom.Point(
-                    spawnArea.left,
-                    Phaser.Math.Between(spawnArea.top, spawnArea.bottom)
-                );
-                break;
-        }
-
-        const enemy = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, 'enemy');
-        this.enemyGroup.add(enemy);
     }
-    });
 
-        // timer event to fire bullets
+    setupTimers() {
+        // Timer event to add enemies
+        this.time.addEvent({
+            delay: GameOptions.enemyRate,
+            loop: true,
+            callback: () => {
+                // Get camera bounds
+                const camera = this.cameras.main;
+                const cameraBounds = new Phaser.Geom.Rectangle(
+                    camera.scrollX,
+                    camera.scrollY,
+                    camera.width,
+                    camera.height
+                );
+
+                // Create a spawn area slightly larger than the camera (optional)
+                const spawnArea = new Phaser.Geom.Rectangle(
+                    cameraBounds.x - 100,
+                    cameraBounds.y - 100,
+                    cameraBounds.width + 200,
+                    cameraBounds.height + 200
+                );
+
+                // Choose a random side (top, bottom, left, right)
+                const side = Phaser.Math.Between(0, 3);
+                let spawnPoint;
+
+                switch(side) {
+                    case 0: // Top
+                        spawnPoint = new Phaser.Geom.Point(
+                            Phaser.Math.Between(spawnArea.left, spawnArea.right),
+                            spawnArea.top
+                        );
+                        break;
+                    case 1: // Right
+                        spawnPoint = new Phaser.Geom.Point(
+                            spawnArea.right,
+                            Phaser.Math.Between(spawnArea.top, spawnArea.bottom)
+                        );
+                        break;
+                    case 2: // Bottom
+                        spawnPoint = new Phaser.Geom.Point(
+                            Phaser.Math.Between(spawnArea.left, spawnArea.right),
+                            spawnArea.bottom
+                        );
+                        break;
+                    case 3: // Left
+                        spawnPoint = new Phaser.Geom.Point(
+                            spawnArea.left,
+                            Phaser.Math.Between(spawnArea.top, spawnArea.bottom)
+                        );
+                        break;
+                }
+
+                const enemy = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, 'enemy');
+                this.enemyGroup.add(enemy);
+            }
+        });
+
+        // Timer event to fire bullets
         this.time.addEvent({
             delay       : GameOptions.bulletRate,
             loop        : true,
@@ -191,8 +311,15 @@ class PlayGame extends Phaser.Scene {
                 }
             },
         });
+    }
 
-        // bullet Vs enemy collision
+    setupCollisions() {
+        // Player vs Enemy collision
+        this.physics.add.collider(this.player, this.enemyGroup, () => {
+            this.takeDamage(); // Call takeDamage function
+        });
+
+        // Bullet vs Enemy collision
         this.physics.add.collider(this.bulletGroup, this.enemyGroup, (bullet, enemy) => {
             const coin = this.physics.add.sprite(enemy.x, enemy.y, 'coin');
             coin.setDisplaySize(30, 30);
@@ -204,25 +331,18 @@ class PlayGame extends Phaser.Scene {
             (enemy.body).checkCollision.none = true; // Make enemy non-collidable after hit
         });
 
-        // player Vs enemy collision
-        this.physics.add.collider(this.player, this.enemyGroup, () => {
-            this.scene.restart();
-        });
-
-        // player Vs coin colission
+        // Player vs Coin collision
         this.physics.add.collider(this.player, this.coinGroup, (player, coin) => {
             this.coinGroup.killAndHide(coin);
             coin.body.checkCollision.none = true;
-        })
+            // Add coin collection logic here (e.g., increase score)
+        });
     }
 
-    // method to be called at each frame
-    update(time, delta) {
+    handlePlayerMovement() {
+        // Ensure player exists before handling movement
+        if (!this.player) return;
 
-        // Faz a barra seguir o jogador
-        this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
-
-        // set movement direction according to keys pressed
         let movementDirection = new Phaser.Math.Vector2(0, 0);
         if (this.controlKeys.right.isDown) {
             movementDirection.x ++;
@@ -237,126 +357,92 @@ class PlayGame extends Phaser.Scene {
             movementDirection.y ++;
         }
 
-        // normalize vector if moving diagonally
+        // Normalize vector if moving diagonally
         movementDirection.normalize();
 
-        // set player velocity according to movement direction
+        // Set player velocity
         this.player.setVelocity(movementDirection.x * GameOptions.playerSpeed, movementDirection.y * GameOptions.playerSpeed);
+    }
 
-        // get coins on collide
+    collectCoins() {
+        // Ensure player exists before collecting coins
+        if (!this.player) return;
+
         const coinsInCircle = this.physics.overlapCirc(this.player.x, this.player.y, GameOptions.magnetRadius, true, true);
         coinsInCircle.forEach((body) => {
             const bodySprite = body.gameObject;
             if (bodySprite.texture.key == 'coin'){
                 this.physics.moveToObject(bodySprite, this.player, 500);
             }
-        })
-        
-        // move enemies towards player
+        });
+    }
+
+    moveEnemies() {
+        // Ensure player exists before moving enemies towards it
+        if (!this.player) return;
+
         this.enemyGroup.getChildren().forEach((enemy) => {
             // Ensure enemy is active before moving
             if (enemy.active) {
                  this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
             }
         });
-            
-            // Atualiza o tempo decorrido
-            this.elapsedTime += delta;
-            
-            // Atualiza a barra a cada segundo
-            if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
-                this.updateTimeBar();
-            }
-            
-            // Verifica se o tempo acabou
-            if (this.elapsedTime >= this.totalGameTime) {
-                this.gameOver(); // Chama sua função de game over
-            }
-
-
     }
 
-    updateHealthBar() {
-    const barWidth = 80;  // Largura da barra
-    const barHeight = 10; // Altura da barra
-    const healthPercent = this.playerHP / 5; // Calcula a porcentagem de vida
+    updateGameTimer(delta) {
+        // Update elapsed time
+        this.elapsedTime += delta;
 
-    // Limpa os gráficos
-    this.healthBarBg.clear();
-    this.healthBar.clear();
-
-    // Desenha o fundo da barra (cinza)
-    this.healthBarBg.fillStyle(0x333333, 1); // Cinza escuro
-    this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight); // Centralizado
-
-    // Desenha a barra de vida vermelha
-    this.healthBar.fillStyle(0xff0000, 1); // Vermelho
-    this.healthBar.fillRect(-barWidth/2, 0, barWidth * healthPercent, barHeight);
-    
-    // Adiciona borda branca (opcional)
-    this.healthBarBg.lineStyle(1, 0xffffff, 1);
-    this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
-    }
-
-    takeDamage() {
-    if (this.isInvulnerable) return; // Ignora dano se invencível
-
-    this.playerHP--;
-    this.hpText.setText(`HP: ${this.playerHP}`);
-    this.updateHealthBar(); // Atualiza a barra visual
-
-    // Efeito visual de dano
-    this.isInvulnerable = true;
-    this.player.setTint(0xff0000); // Fica vermelho
-
-    // Piscar o jogador
-    const blinkInterval = this.time.addEvent({
-        delay: 100,
-        callback: () => {
-            this.player.alpha = this.player.alpha === 1 ? 0.5 : 1;
-        },
-        repeat: 10
-    });
-
-    // Volta ao normal após 1 segundo
-    this.time.delayedCall(1000, () => {
-        this.isInvulnerable = false;
-        this.player.clearTint();
-        this.player.setAlpha(1);
-        blinkInterval.destroy();
-    });
-
-    if (this.playerHP <= 0) {
-        this.gameOver();
-    }
-}
-
-    updateTimeBar() {
-        const barWidth = this.cameras.main.width * 0.9;
-        const timePercent = 1 - (this.elapsedTime / this.totalGameTime);
-
-        this.timeBar.clear()
-            .fillStyle(0x00a8ff, 1)
-            .fillRect(-barWidth/2, 0, barWidth * timePercent, 20);
-
-        // Vermelho nos últimos 30 segundos
-        if ((this.totalGameTime - this.elapsedTime) < 30000) {
-            this.timeBar.fillStyle(0xff0000, 1);
+        // Update the bar every second
+        if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
+            this.updateTimeBar();
         }
 
-        // Atualiza texto
-        const remainingTime = this.totalGameTime - this.elapsedTime;
-        const minutes = Math.floor(remainingTime / 60000);
-        const seconds = Math.floor((remainingTime % 60000) / 1000);
-        this.timeText.setText(`${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+        // Check if time is up
+        if (this.elapsedTime >= this.totalGameTime) {
+            this.gameOver(); // Call game over function
+        }
+    }
+
+    mapGeneration(){
+        const tileWidth = 16;
+        const tileHeight = 16;
+        const mapWidth = 1600;
+        const mapHeight = 1200;
+
+        const mapData = [];
+        const grassyFieldIndex = 0;
+
+        for (let altura = 0; altura < mapHeight; altura++) {
+            const row = [];
+            for (let largura = 0; largura < mapWidth; largura++) {
+                row.push(grassyFieldIndex);
+            }
+            mapData.push(row);
+        }
+
+        this.map = this.make.tilemap({ data: mapData, tileWidth: tileWidth, tileHeight: tileHeight });
+
+        const tileset = this.map.addTilesetImage('grassy_field_tiles', null, tileWidth, tileHeight);
+
+        const layer = this.map.createLayer(0, tileset, 0, 0);
+
+        
+
+        // You might want to set the camera bounds if you have other game elements
+        // this.cameras.main.setBounds(0, 0, this.map.widthInPixels, this.map.heightInPixels);
+
     }
 
     gameOver() {
-        // Pausa o jogo
+        // Pause the game
         this.physics.pause();
-        this.player.setTint(0xff0000);
+        // Ensure player exists before tinting
+        if (this.player) {
+            this.player.setTint(0xff0000);
+        }
 
-        // Texto de Game Over
+        // Game Over Text
         const gameOverText = this.add.text(
             this.cameras.main.centerX,
             this.cameras.main.centerY - 50,
@@ -371,7 +457,7 @@ class PlayGame extends Phaser.Scene {
         );
         gameOverText.setOrigin(0.5);
 
-        // Texto de reiniciar
+        // Restart Text
         const restartText = this.add.text(
             this.cameras.main.centerX,
             this.cameras.main.centerY + 50,
@@ -384,7 +470,7 @@ class PlayGame extends Phaser.Scene {
         );
         restartText.setOrigin(0.5);
 
-        // Configura tecla de reinício
+        // Setup restart key
         this.input.keyboard.once('keydown-R', () => {
             this.scene.restart();
         });
