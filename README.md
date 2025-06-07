@@ -20,7 +20,7 @@ Cada escolha influencia o julgamento final de sua existência, e apenas os mais 
 
 * **Escolha de Herói:** Quatro personagens jogáveis (Paladino, Bardo, Ladina, Arqueira), cada um com questões pendentes e motivações únicas.
 * **Combate Roguelike:** Hordas de inimigos que ficam progressivamente mais fortes.
-* **Eventos Dinâmicos:** Encontros com eventos únicos e chefes a cada 4 minutos, culminando em um chefe final aos 20 minutos.
+* **Eventos Dinâmicos:** Encontros com eventos únicos e chefes a cada 3 minutos, culminando em um chefe final aos 15 minutos.
 * **Progressão de Personagem:** Ganho de EXP e escolha de novas armas/melhorias de habilidades.
 * **Melhorias Permanentes:** Desbloqueio de melhorias aplicáveis em todas as partidas futuras.
 * **Julgamento Moral:** Escolhas que influenciam o destino da alma do herói (redenção ou corrupção).
