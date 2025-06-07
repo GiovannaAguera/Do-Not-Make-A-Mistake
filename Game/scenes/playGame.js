@@ -12,6 +12,9 @@ class PlayGame extends Phaser.Scene {
     // Player Stats
     playerHP = 5; // Initial health points
     isInvulnerable = false; // Invulnerability status
+    playerLVL = 1;
+    playerXP = 0;
+    nextLevelXP = 100;
 
     // UI Elements
     hpText = null; // Text object to display HP
@@ -23,7 +26,7 @@ class PlayGame extends Phaser.Scene {
     timeText = null; // Text object to display time
 
     // Game Timer
-    totalGameTime = 15 * 60 * 1000; // 15 minutes in milliseconds
+    totalGameTime = 900000; // 15 minutes in milliseconds
     elapsedTime = 0;
 
     // Map
@@ -48,6 +51,8 @@ class PlayGame extends Phaser.Scene {
 
         // Game Objects
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
+        this.player.setDisplaySize(60, 60);
+        this.player.setSize(60, 60);
         this.mapGeneration();
         this.enemyGroup = this.physics.add.group();
         this.bulletGroup = this.physics.add.group();
@@ -59,6 +64,7 @@ class PlayGame extends Phaser.Scene {
         // UI Creation
         this.createTimeBar();
         this.createHealthBar();
+        this.createLevelUI();
 
         // Input Handling
         this.setupInput();
@@ -76,42 +82,86 @@ class PlayGame extends Phaser.Scene {
         // Initial UI Update
         this.updateHealthBar();
         this.updateTimeBar();
+        this.updateLevelText();
 
         // Set depths (z-index)
+        this.enemyGroup.setDepth(100);
         this.timeBarBg.setDepth(1000);
         this.timeBar.setDepth(1001);
         this.timeText.setDepth(1002);
-        this.enemyGroup.setDepth(100);
+    }
+
+    update(time, delta) {
+        // Update health bar position
+        if (this.player) {
+            this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
+            this.updateTilemapAroundPlayer();
+            this.cleanFarTiles(this.player.x, this.player.y);
+        
+            // Atualiza o mapa ao redor do jogador
+            this.updateTilemapAroundPlayer();
+            // Atualiza a posição de referência se o jogador sair da área central
+            const threshold = this.tileSize * 2;
+            if (Math.abs(this.player.x - this.referenceX) > threshold || Math.abs(this.player.y - this.referenceY) > threshold) {
+                this.referenceX = this.player.x;
+                this.referenceY = this.player.y;
+            }
+            // Remove tiles muito distantes
+            this.cleanFarTiles(this.player.x, this.player.y, 15); // Aumentamos o raiso de limpeza
+
+            // Atualiza o timer do jogo
+             this.elapsedTime += delta;
+    
+            // Atualiza a barra de tempo a cada segundo
+            if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
+                this.updateTimeBar();
+            }
+        }
+    
+
+        // Player movement
+        this.handlePlayerMovement();
+
+        // Coin collection
+        this.collectCoins();
+
+        // Enemy movement
+        this.moveEnemies();
+
+        // Game timer
+        this.updateGameTimer(delta);
     }
 
     mapGeneration() {
-        // Cria um tilemap sem dimensões fixas
         this.tileMap = this.make.tilemap({
             tileWidth: this.tileSize,
-            tileHeight: this.tileSize
+            tileHeight: this.tileSize,
+            width: 1000,
+            height: 1000
         });
 
-        this.tileset = this.tileMap.addTilesetImage('tiles');
+        this.tileset = this.tileMap.addTilesetImage('tiles', null, this.tileSize, this.tileSize);
         this.tileLayer = this.tileMap.createBlankLayer('Ground', this.tileset);
-        this.tileLayer.setDepth(-10);
+        this.tileLayer.setDepth(-10); // Set behind everything
 
-        // Inicializa o cache e as posições de referência
-        this.tileCache = new Set();
-        this.referenceX = 0;
-        this.referenceY = 0;
-        
-        // Gera área inicial
-        this.updateTilemapAroundPlayer(5);
-        }
+        // Initially fill a few tiles around the player
+        this.updateTilemapAroundPlayer();
+
+    }
 
     updateTilemapAroundPlayer(radius = 3) {
-        if (!this.player || !this.tileLayer) return;
+        const playerTileX = Math.floor(this.player.x / this.tileSize);
+        const playerTileY = Math.floor(this.player.y / this.tileSize);
 
-        // Calcula a posição do jogador em relação ao tilemap
-        const playerTileX = Math.floor((this.player.x - this.referenceX) / this.tileSize);
-        const playerTileY = Math.floor((this.player.y - this.referenceY) / this.tileSize);
+        // Only regenerate if player entered a new tile
+        if (this.lastTileX === playerTileX && this.lastTileY === playerTileY) {
+            return; // Player is still in same tile — skip update
+        }
 
-        // Gera novos tiles em todas as direções
+        // Save new position
+        this.lastTileX = playerTileX;
+        this.lastTileY = playerTileY;
+
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
                 const tileX = playerTileX + dx;
@@ -119,25 +169,9 @@ class PlayGame extends Phaser.Scene {
                 const key = `${tileX},${tileY}`;
 
                 if (!this.tileCache.has(key)) {
-                    try {
-                        // Posição absoluta no mundo
-                        const worldX = this.referenceX + (tileX * this.tileSize);
-                        const worldY = this.referenceY + (tileY * this.tileSize);
-                        
-                        // Usa o tile 0 como padrão
-                        this.tileLayer.putTileAt(0, tileX, tileY);
-                        
-                        // Ajusta a posição do tile no mundo
-                        const tile = this.tileLayer.getTileAt(tileX, tileY);
-                        if (tile) {
-                            tile.pixelX = worldX;
-                            tile.pixelY = worldY;
-                        }
-                        
-                        this.tileCache.add(key);
-                    } catch (error) {
-                        console.error(`Erro ao gerar tile (${tileX}, ${tileY}):`, error);
-                    }
+                    const tileIndex = 0;
+                    this.tileLayer.putTileAt(tileIndex, tileX, tileY);
+                    this.tileCache.add(key);
                 }
             }
         }
@@ -147,23 +181,16 @@ class PlayGame extends Phaser.Scene {
         const playerTileX = Math.floor(playerX / this.tileSize);
         const playerTileY = Math.floor(playerY / this.tileSize);
 
-        // Cria um novo Set para os tiles que devem ser mantidos
-        const newCache = new Set();
-
         this.tileCache.forEach((key) => {
             const [tx, ty] = key.split(',').map(Number);
             const dx = tx - playerTileX;
             const dy = ty - playerTileY;
-            const distance = Math.max(Math.abs(dx), Math.abs(dy));
 
-            if (distance <= maxDistance) {
-                newCache.add(key);
-            } else {
+            if (Math.abs(dx) > maxDistance || Math.abs(dy) > maxDistance) {
                 this.tileLayer.removeTileAt(tx, ty);
+                this.tileCache.delete(key);
             }
         });
-
-        this.tileCache = newCache;
     }
 
     createTimeBar() {
@@ -260,6 +287,60 @@ class PlayGame extends Phaser.Scene {
         // Border
         this.healthBarBg.lineStyle(1, 0xffffff, 1);
         this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
+    }
+
+    createLevelUI() {
+        const xpBarWidth = this.cameras.main.width * 0.8;
+        const xpBarHeight = 20;
+        const xpBarX = this.cameras.main.width * 0.1;
+        const xpBarY = this.cameras.main.height - 40;
+
+        this.xpBarBg = this.add.graphics()
+            .fillStyle(0x333333, 1)
+            .fillRect(0, 0, xpBarWidth, xpBarHeight)
+            .setPosition(xpBarX, xpBarY)
+            .setScrollFactor(0)
+            .setDepth(1000);
+
+        this.xpBar = this.add.graphics()
+            .fillStyle(0xffff00, 1)
+            .fillRect(0, 0, 0, xpBarHeight)
+            .setPosition(xpBarX, xpBarY)
+            .setScrollFactor(0)
+            .setDepth(1001);
+
+        this.xpText = this.add.text(this.cameras.main.centerX, xpBarY - 22, `XP: ${this.playerXP} / ${this.nextLevelXP}`, {
+            fontSize: '18px',
+            fill: '#ffffff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA',
+            padding: { left: 10, right: 10, top: 2, bottom: 2 }
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(1002);
+
+        this.levelText = this.add.text(60, 100, `Level: ${this.playerLVL}`, {
+            fontSize: '24px',
+            fill: '#fff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA',
+            padding: { left: 10, right: 10, top: 5, bottom: 5 }
+        })
+        .setScrollFactor(0)
+        .setDepth(1003);
+    }
+
+    updateLevelText() {
+        this.levelText.setText(`Level: ${this.playerLVL}`);
+        this.xpText.setText(`XP: ${this.playerXP} / ${this.nextLevelXP}`);
+
+        const xpBarWidth = this.cameras.main.width * 0.8;
+        const xpPercent = Phaser.Math.Clamp(this.playerXP / this.nextLevelXP, 0, 1);
+
+        this.xpBar.clear()
+            .fillStyle(0xffff00, 1)
+            .fillRect(0, 0, xpBarWidth * xpPercent, 20);
     }
 
     takeDamage() {
@@ -384,65 +465,31 @@ class PlayGame extends Phaser.Scene {
 
         // Bullet vs Enemy
         this.physics.add.collider(this.bulletGroup, this.enemyGroup, (bullet, enemy) => {
+            (bullet.body).checkCollision.none = true;
+            (enemy.body).checkCollision.none = true;            
             const coin = this.physics.add.sprite(enemy.x, enemy.y, 'coin');
             coin.setDisplaySize(30, 30);
             coin.setSize(30, 30);
             this.coinGroup.add(coin);
             this.bulletGroup.killAndHide(bullet);
-            (bullet.body).checkCollision.none = true;
             this.enemyGroup.killAndHide(enemy);
-            (enemy.body).checkCollision.none = true;
         });
 
-        // Player vs Coin
+        // Player vs Coin 
         this.physics.add.collider(this.player, this.coinGroup, (player, coin) => {
+            this.playerXP += 10;
+
+            if (this.playerXP >= this.nextLevelXP) {
+                this.levelUP();
+            } else {
+                this.updateLevelText(); // Update XP bar even if no level up
+            }
+
             this.coinGroup.killAndHide(coin);
             coin.body.checkCollision.none = true;
         });
     }
-
-    // method to be called at each frame
-    update(time, delta) {
-        // Update health bar position
-        if (this.player) {
-            this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
-            this.updateTilemapAroundPlayer();
-            this.cleanFarTiles(this.player.x, this.player.y);
-        
-            // Atualiza o mapa ao redor do jogador
-            this.updateTilemapAroundPlayer();
-            // Atualiza a posição de referência se o jogador sair da área central
-            const threshold = this.tileSize * 2;
-            if (Math.abs(this.player.x - this.referenceX) > threshold || Math.abs(this.player.y - this.referenceY) > threshold) {
-                this.referenceX = this.player.x;
-                this.referenceY = this.player.y;
-            }
-            // Remove tiles muito distantes
-            this.cleanFarTiles(this.player.x, this.player.y, 15); // Aumentamos o raiso de limpeza
-
-            // Atualiza o timer do jogo
-             this.elapsedTime += delta;
     
-            // Atualiza a barra de tempo a cada segundo
-            if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
-                this.updateTimeBar();
-            }
-        }
-    
-
-        // Player movement
-        this.handlePlayerMovement();
-
-        // Coin collection
-        this.collectCoins();
-
-        // Enemy movement
-        this.moveEnemies();
-
-        // Game timer
-        this.updateGameTimer(delta);
-    }
-
     handlePlayerMovement() {
         if (!this.player) return;
 
@@ -465,17 +512,25 @@ class PlayGame extends Phaser.Scene {
     }
 
     collectCoins() {
+        // Ensure player exists before collecting coins
         if (!this.player) return;
 
         const coinsInCircle = this.physics.overlapCirc(this.player.x, this.player.y, GameOptions.magnetRadius, true, true);
         coinsInCircle.forEach((body) => {
             const bodySprite = body.gameObject;
-            if (bodySprite.texture.key == 'coin') {
+            if (bodySprite.texture.key == 'coin'){
                 this.physics.moveToObject(bodySprite, this.player, 500);
             }
         });
     }
 
+    levelUP() {
+        this.playerLVL++;
+        this.playerXP -= this.nextLevelXP;
+        this.nextLevelXP = Math.floor(this.nextLevelXP * 1.2);
+        this.updateLevelText(); // This now updates both level and XP bar
+    }
+    
     moveEnemies() {
         if (!this.player) return;
 
