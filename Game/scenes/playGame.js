@@ -14,10 +14,18 @@ class PlayGame extends Phaser.Scene {
         });
     this.playerHP = 5; // Quantidade inicial de vida
     this.hpText = null; // Objeto de texto para exibir a vida
+
+    this.totalGameTime = 15 * 60 * 1000; // 15 minutos em milissegundos
+    this.elapsedTime = 0;
+    this.timeBar = null;
+    this.timeText = null;
+    
     }
 
     // method to be called once the instance has been created
     create() {
+
+        this.cameras.main.setScroll(0, 0); // Trava a rolagem no topo
 
         // add player, enemies group and bullets group
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
@@ -25,13 +33,71 @@ class PlayGame extends Phaser.Scene {
         this.bulletGroup = this.physics.add.group();
         // ADICIONA A CAMERA
         this.cameras.main.startFollow(this.player);
+        this.coinGroup = this.physics.add.group();
+        
+         // Cria a barra de tempo no topo da tela
+        const barWidth = this.cameras.main.width * 0.9;
+        const barHeight = 20;
+        const barX = this.cameras.main.centerX;
+        const barY = 30;
 
-        this.hpText = this.add.text(16, 16, `HP: ${this.playerHP}`, {
-        fontSize: '24px',
-        fill: '#fff',
-        fontFamily: 'Arial'
-        });
-        this.hpText.setScrollFactor(0); // Faz o texto ficar fixo na tela
+        // Barra de fundo (cinza)
+        this.timeBarBg = this.add.graphics()
+            .fillStyle(0x333333, 1)
+            .fillRect(-barWidth/2, 0, barWidth, barHeight)
+            .setPosition(barX, barY)
+            .setScrollFactor(0); // Fixa na tela
+
+        // Barra de progresso (azul)
+        this.timeBar = this.add.graphics()
+            .fillStyle(0x00a8ff, 1)
+            .fillRect(-barWidth/2, 0, barWidth, barHeight)
+            .setPosition(barX, barY)
+            .setScrollFactor(0); // Fixa na tela
+
+        // Texto do tempo
+        this.timeText = this.add.text(barX, barY - 8, '15:00', { 
+            fontSize: '22px',
+            fill: '#ffffff',
+            fontFamily: 'Arial',
+            fontWeight: 'bold'
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0); // Fixa na tela
+
+          // Configura profundidades (z-index)
+        // INIMIGOS FICAM ABAIXO DA BARRA DE TEMPO
+        this.timeBarBg.setDepth(1000);
+        this.timeBar.setDepth(1001);
+        this.timeText.setDepth(1002);
+        if (this.timeBarBack) this.timeBarBack.setDepth(999);
+
+        // Garante que inimigos fiquem ABAIXO da barra
+        this.enemyGroup.setDepth(100);
+        
+        this.updateTimeBar(); // Inicializa a barra
+
+
+        // Cria a barra de vida
+        this.healthBarBg = this.add.graphics(); // Fundo da barra (cinza)
+        this.healthBar = this.add.graphics();   // Barra vermelha (vida atual)
+
+        // Posiciona as barras acima do jogador
+        this.healthBarContainer = this.add.container(this.player.x, this.player.y - 40);
+        this.healthBarContainer.add([this.healthBarBg, this.healthBar]);
+
+        // Atualiza a aparência inicial da barra
+        this.updateHealthBar();
+
+        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {  // X: 30, Y: 60 (abaixo da barra)
+            fontSize: '24px',
+            fill: '#fff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA', // Fundo semi-transparente
+            padding: { left: 10, right: 10, top: 5, bottom: 5 }
+        })
+        .setScrollFactor(0)
+        .setDepth(1003); // Garante que fique acima de tudo
     
     // Modifique a colisão player vs inimigo:
     this.physics.add.collider(this.player, this.enemyGroup, () => {
@@ -110,7 +176,7 @@ class PlayGame extends Phaser.Scene {
         const enemy = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, 'enemy');
         this.enemyGroup.add(enemy);
     }
-});
+    });
 
         // timer event to fire bullets
         this.time.addEvent({
@@ -151,7 +217,10 @@ class PlayGame extends Phaser.Scene {
     }
 
     // method to be called at each frame
-    update() {
+    update(time, delta) {
+
+        // Faz a barra seguir o jogador
+        this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
 
         // set movement direction according to keys pressed
         let movementDirection = new Phaser.Math.Vector2(0, 0);
@@ -190,6 +259,43 @@ class PlayGame extends Phaser.Scene {
                  this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
             }
         });
+            
+            // Atualiza o tempo decorrido
+            this.elapsedTime += delta;
+            
+            // Atualiza a barra a cada segundo
+            if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
+                this.updateTimeBar();
+            }
+            
+            // Verifica se o tempo acabou
+            if (this.elapsedTime >= this.totalGameTime) {
+                this.gameOver(); // Chama sua função de game over
+            }
+
+
+    }
+
+    updateHealthBar() {
+    const barWidth = 80;  // Largura da barra
+    const barHeight = 10; // Altura da barra
+    const healthPercent = this.playerHP / 5; // Calcula a porcentagem de vida
+
+    // Limpa os gráficos
+    this.healthBarBg.clear();
+    this.healthBar.clear();
+
+    // Desenha o fundo da barra (cinza)
+    this.healthBarBg.fillStyle(0x333333, 1); // Cinza escuro
+    this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight); // Centralizado
+
+    // Desenha a barra de vida vermelha
+    this.healthBar.fillStyle(0xff0000, 1); // Vermelho
+    this.healthBar.fillRect(-barWidth/2, 0, barWidth * healthPercent, barHeight);
+    
+    // Adiciona borda branca (opcional)
+    this.healthBarBg.lineStyle(1, 0xffffff, 1);
+    this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
     }
 
     takeDamage() {
@@ -197,6 +303,7 @@ class PlayGame extends Phaser.Scene {
 
     this.playerHP--;
     this.hpText.setText(`HP: ${this.playerHP}`);
+    this.updateHealthBar(); // Atualiza a barra visual
 
     // Efeito visual de dano
     this.isInvulnerable = true;
@@ -223,6 +330,26 @@ class PlayGame extends Phaser.Scene {
         this.gameOver();
     }
 }
+
+    updateTimeBar() {
+        const barWidth = this.cameras.main.width * 0.9;
+        const timePercent = 1 - (this.elapsedTime / this.totalGameTime);
+
+        this.timeBar.clear()
+            .fillStyle(0x00a8ff, 1)
+            .fillRect(-barWidth/2, 0, barWidth * timePercent, 20);
+
+        // Vermelho nos últimos 30 segundos
+        if ((this.totalGameTime - this.elapsedTime) < 30000) {
+            this.timeBar.fillStyle(0xff0000, 1);
+        }
+
+        // Atualiza texto
+        const remainingTime = this.totalGameTime - this.elapsedTime;
+        const minutes = Math.floor(remainingTime / 60000);
+        const seconds = Math.floor((remainingTime % 60000) / 1000);
+        this.timeText.setText(`${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+    }
 
     gameOver() {
         // Pausa o jogo
