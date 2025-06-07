@@ -19,7 +19,8 @@ class PreloadAssets extends Phaser.Scene {
         this.load.image('enemy', 'assets/sprites/enemy.png');      // the big circle
         this.load.image('player', 'assets/sprites/player.png');    // the player
         this.load.image('bullet', 'assets/sprites/bullet.png');    // the spike
-        this.load.image('coin', 'assets/sprites/coin.png');  
+        this.load.image('coin', 'assets/sprites/coin.png');
+        this.load.image('grassy_field_tiles', 'assets/sprites/grassy_field.png');
     }
 
     // method to be executed when the scene is created
