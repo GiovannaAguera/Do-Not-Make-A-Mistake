@@ -2,7 +2,6 @@
 
 // PlayGame class extends Phaser.Scene class
 class PlayGame extends Phaser.Scene {
-
     // --- Properties ---
     controlKeys;
     player;
@@ -13,6 +12,9 @@ class PlayGame extends Phaser.Scene {
     // Player Stats
     playerHP = 5; // Initial health points
     isInvulnerable = false; // Invulnerability status
+    playerLVL = 1;
+    playerXP = 0;
+    nextLevelXP = 100;
 
     // UI Elements
     hpText = null; // Text object to display HP
@@ -33,19 +35,15 @@ class PlayGame extends Phaser.Scene {
     tileLayer;
     tileset;
     tileCache = new Set();
-    tileUpdateCounter = 0;
     lastTileX = null;
     lastTileY = null;
 
-    // --- Constructor ---
-    constructor(){
+    constructor() {
         super({
             key: 'PlayGame'
         });
     }
 
-    // --- Phaser Scene Methods ---
-    
     // method to be called once the instance has been created
     create() {
         // Camera setup
@@ -53,6 +51,8 @@ class PlayGame extends Phaser.Scene {
 
         // Game Objects
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
+        this.player.setDisplaySize(60, 60);
+        this.player.setSize(60, 60);
         this.mapGeneration();
         this.enemyGroup = this.physics.add.group();
         this.bulletGroup = this.physics.add.group();
@@ -64,6 +64,7 @@ class PlayGame extends Phaser.Scene {
         // UI Creation
         this.createTimeBar();
         this.createHealthBar();
+        this.createLevelUI();
 
         // Input Handling
         this.setupInput();
@@ -74,42 +75,62 @@ class PlayGame extends Phaser.Scene {
         // Collisions
         this.setupCollisions();
 
-        // Initial UI Update
-        this.updateHealthBar(); // Initialize health bar appearance
-        this.updateTimeBar(); // Initialize time bar appearance
+        this.playerHP = 5;
+        this.isInvulnerable = false;
+        this.hpText.setText(`HP: ${this.playerHP}`);
 
-        // Set depths (z-index) - Ensure enemies are below the time bar
+        // Initial UI Update
+        this.updateHealthBar();
+        this.updateTimeBar();
+        this.updateLevelText();
+
+        // Set depths (z-index)
+        this.enemyGroup.setDepth(100);
         this.timeBarBg.setDepth(1000);
         this.timeBar.setDepth(1001);
         this.timeText.setDepth(1002);
-        // if (this.timeBarBack) this.timeBarBack.setDepth(999); // timeBarBack is not defined in the original code
-        this.enemyGroup.setDepth(100); // Ensure enemies are below the time bar
     }
 
-    // method to be called at each frame
     update(time, delta) {
-        // Update UI positions
-        // Ensure player exists before updating health bar container position
+        // Update health bar position
         if (this.player) {
             this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
-            this.updateTilemapAroundPlayer(); // ✅ Now it's safe to call every frame
+            this.updateTilemapAroundPlayer();
             this.cleanFarTiles(this.player.x, this.player.y);
-        }
+        
+            // Atualiza o mapa ao redor do jogador
+            this.updateTilemapAroundPlayer();
+            // Atualiza a posição de referência se o jogador sair da área central
+            const threshold = this.tileSize * 2;
+            if (Math.abs(this.player.x - this.referenceX) > threshold || Math.abs(this.player.y - this.referenceY) > threshold) {
+                this.referenceX = this.player.x;
+                this.referenceY = this.player.y;
+            }
+            // Remove tiles muito distantes
+            this.cleanFarTiles(this.player.x, this.player.y, 15); // Aumentamos o raiso de limpeza
 
-        // Player Movement
+            // Atualiza o timer do jogo
+             this.elapsedTime += delta;
+    
+            // Atualiza a barra de tempo a cada segundo
+            if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
+                this.updateTimeBar();
+            }
+        }
+    
+
+        // Player movement
         this.handlePlayerMovement();
 
-        // Coin Collection (Magnet effect)
+        // Coin collection
         this.collectCoins();
 
-        // Enemy Movement
+        // Enemy movement
         this.moveEnemies();
 
-        // Game Timer Update
+        // Game timer
         this.updateGameTimer(delta);
     }
-
-    // --- Custom Methods ---
 
     mapGeneration() {
         this.tileMap = this.make.tilemap({
@@ -155,7 +176,6 @@ class PlayGame extends Phaser.Scene {
             }
         }
     }
-
 
     cleanFarTiles(playerX, playerY, maxDistance = 10) {
         const playerTileX = Math.floor(playerX / this.tileSize);
@@ -206,7 +226,7 @@ class PlayGame extends Phaser.Scene {
 
     updateTimeBar() {
         const barWidth = this.cameras.main.width * 0.9;
-        const timePercent = this.elapsedTime / this.totalGameTime; // Changed from 1 - ...
+        const timePercent = this.elapsedTime / this.totalGameTime;
 
         this.timeBar.clear()
             .fillStyle(0x00a8ff, 1);
@@ -226,63 +246,115 @@ class PlayGame extends Phaser.Scene {
     }
 
     createHealthBar() {
-        const barWidth = 80;  // Bar width
-        const barHeight = 10; // Bar height
+        const barWidth = 80;
+        const barHeight = 10;
 
-        this.healthBarBg = this.add.graphics(); // Background bar (gray)
-        this.healthBar = this.add.graphics();   // Red bar (current health)
+        this.healthBarBg = this.add.graphics();
+        this.healthBar = this.add.graphics();
 
-        // Position the bars above the player
-        // This will be updated in the update loop to follow the player
-        this.healthBarContainer = this.add.container(0, 0);
+        // Position bars above player
+        this.healthBarContainer = this.add.container(this.player.x, this.player.y - 40);
         this.healthBarContainer.add([this.healthBarBg, this.healthBar]);
 
         // HP Text
-        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {  // Positioned below the time bar
+        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {
             fontSize: '24px',
             fill: '#fff',
             fontFamily: 'Arial',
-            backgroundColor: '#000000AA', // Semi-transparent background
+            backgroundColor: '#000000AA',
             padding: { left: 10, right: 10, top: 5, bottom: 5 }
         })
         .setScrollFactor(0)
-        .setDepth(1003); // Ensure it's above everything else
+        .setDepth(1003);
     }
 
     updateHealthBar() {
-        const barWidth = 80;  // Bar width
-        const barHeight = 10; // Bar height
-        const healthPercent = this.playerHP / 5; // Calculate health percentage (assuming max HP is 5)
+        const barWidth = 80;
+        const barHeight = 10;
+        const healthPercent = this.playerHP / 5;
 
-        // Clear graphics
         this.healthBarBg.clear();
         this.healthBar.clear();
 
-        // Draw background bar (gray)
-        this.healthBarBg.fillStyle(0x333333, 1); // Dark gray
-        this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight); // Centered
+        // Background
+        this.healthBarBg.fillStyle(0x333333, 1);
+        this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight);
 
-        // Draw red health bar
-        this.healthBar.fillStyle(0xff0000, 1); // Red
+        // Health
+        this.healthBar.fillStyle(0xff0000, 1);
         this.healthBar.fillRect(-barWidth/2, 0, barWidth * healthPercent, barHeight);
-
-        // Add white border (optional)
+        
+        // Border
         this.healthBarBg.lineStyle(1, 0xffffff, 1);
         this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
     }
 
+    createLevelUI() {
+        const xpBarWidth = this.cameras.main.width * 0.8;
+        const xpBarHeight = 20;
+        const xpBarX = this.cameras.main.width * 0.1;
+        const xpBarY = this.cameras.main.height - 40;
+
+        this.xpBarBg = this.add.graphics()
+            .fillStyle(0x333333, 1)
+            .fillRect(0, 0, xpBarWidth, xpBarHeight)
+            .setPosition(xpBarX, xpBarY)
+            .setScrollFactor(0)
+            .setDepth(1000);
+
+        this.xpBar = this.add.graphics()
+            .fillStyle(0xffff00, 1)
+            .fillRect(0, 0, 0, xpBarHeight)
+            .setPosition(xpBarX, xpBarY)
+            .setScrollFactor(0)
+            .setDepth(1001);
+
+        this.xpText = this.add.text(this.cameras.main.centerX, xpBarY - 22, `XP: ${this.playerXP} / ${this.nextLevelXP}`, {
+            fontSize: '18px',
+            fill: '#ffffff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA',
+            padding: { left: 10, right: 10, top: 2, bottom: 2 }
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(1002);
+
+        this.levelText = this.add.text(60, 100, `Level: ${this.playerLVL}`, {
+            fontSize: '24px',
+            fill: '#fff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA',
+            padding: { left: 10, right: 10, top: 5, bottom: 5 }
+        })
+        .setScrollFactor(0)
+        .setDepth(1003);
+    }
+
+    updateLevelText() {
+        this.levelText.setText(`Level: ${this.playerLVL}`);
+        this.xpText.setText(`XP: ${this.playerXP} / ${this.nextLevelXP}`);
+
+        const xpBarWidth = this.cameras.main.width * 0.8;
+        const xpPercent = Phaser.Math.Clamp(this.playerXP / this.nextLevelXP, 0, 1);
+
+        this.xpBar.clear()
+            .fillStyle(0xffff00, 1)
+            .fillRect(0, 0, xpBarWidth * xpPercent, 20);
+    }
+
     takeDamage() {
-        if (this.isInvulnerable) return; // Ignore damage if invulnerable
+        if (this.isInvulnerable) return;
 
         this.playerHP--;
         this.hpText.setText(`HP: ${this.playerHP}`);
-        this.updateHealthBar(); // Update health bar visual
+        this.updateHealthBar();
 
-        // Visual damage effect
+        // Visual effect
         this.isInvulnerable = true;
-        this.player.setTint(0xff0000); // Turn red
+        this.player.setTint(0xff0000);
 
-        // Piscar o jogador (Blink the player)
+        // Blink player
         const blinkInterval = this.time.addEvent({
             delay: 100,
             callback: () => {
@@ -291,7 +363,7 @@ class PlayGame extends Phaser.Scene {
             repeat: 10
         });
 
-        // Volta ao normal após 1 segundo (Return to normal after 1 second)
+        // Reset after 1 second
         this.time.delayedCall(1000, () => {
             this.isInvulnerable = false;
             this.player.clearTint();
@@ -307,20 +379,19 @@ class PlayGame extends Phaser.Scene {
     setupInput() {
         const keyboard = this.input.keyboard;
         this.controlKeys = keyboard.addKeys({
-            'up'    : Phaser.Input.Keyboard.KeyCodes.W,
-            'left'  : Phaser.Input.Keyboard.KeyCodes.A,
-            'down'  : Phaser.Input.Keyboard.KeyCodes.S,
-            'right' : Phaser.Input.Keyboard.KeyCodes.D
+            'up': Phaser.Input.Keyboard.KeyCodes.W,
+            'left': Phaser.Input.Keyboard.KeyCodes.A,
+            'down': Phaser.Input.Keyboard.KeyCodes.S,
+            'right': Phaser.Input.Keyboard.KeyCodes.D
         });
     }
 
     setupTimers() {
-        // Timer event to add enemies
+        // Enemy spawn timer
         this.time.addEvent({
             delay: GameOptions.enemyRate,
             loop: true,
             callback: () => {
-                // Get camera bounds
                 const camera = this.cameras.main;
                 const cameraBounds = new Phaser.Geom.Rectangle(
                     camera.scrollX,
@@ -329,7 +400,6 @@ class PlayGame extends Phaser.Scene {
                     camera.height
                 );
 
-                // Create a spawn area slightly larger than the camera (optional)
                 const spawnArea = new Phaser.Geom.Rectangle(
                     cameraBounds.x - 100,
                     cameraBounds.y - 100,
@@ -337,7 +407,6 @@ class PlayGame extends Phaser.Scene {
                     cameraBounds.height + 200
                 );
 
-                // Choose a random side (top, bottom, left, right)
                 const side = Phaser.Math.Between(0, 3);
                 let spawnPoint;
 
@@ -373,11 +442,11 @@ class PlayGame extends Phaser.Scene {
             }
         });
 
-        // Timer event to fire bullets
+        // Bullet firing timer
         this.time.addEvent({
-            delay       : GameOptions.bulletRate,
-            loop        : true,
-            callback    : () => {
+            delay: GameOptions.bulletRate,
+            loop: true,
+            callback: () => {
                 const closestEnemy = this.physics.closest(this.player, this.enemyGroup.getChildren());
                 if (closestEnemy !== null) {
                     const bullet = this.physics.add.sprite(this.player.x, this.player.y, 'bullet');
@@ -389,53 +458,56 @@ class PlayGame extends Phaser.Scene {
     }
 
     setupCollisions() {
-        // Player vs Enemy collision
+        // Player vs Enemy
         this.physics.add.collider(this.player, this.enemyGroup, () => {
-            this.takeDamage(); // Call takeDamage function
+            this.takeDamage();
         });
 
-        // Bullet vs Enemy collision
+        // Bullet vs Enemy
         this.physics.add.collider(this.bulletGroup, this.enemyGroup, (bullet, enemy) => {
+            (bullet.body).checkCollision.none = true;
+            (enemy.body).checkCollision.none = true;            
             const coin = this.physics.add.sprite(enemy.x, enemy.y, 'coin');
             coin.setDisplaySize(30, 30);
             coin.setSize(30, 30);
             this.coinGroup.add(coin);
             this.bulletGroup.killAndHide(bullet);
-            (bullet.body).checkCollision.none = true; // Make bullet non-collidable after hit
             this.enemyGroup.killAndHide(enemy);
-            (enemy.body).checkCollision.none = true; // Make enemy non-collidable after hit
         });
 
-        // Player vs Coin collision
+        // Player vs Coin 
         this.physics.add.collider(this.player, this.coinGroup, (player, coin) => {
+            this.playerXP += 10;
+
+            if (this.playerXP >= this.nextLevelXP) {
+                this.levelUP();
+            } else {
+                this.updateLevelText(); // Update XP bar even if no level up
+            }
+
             this.coinGroup.killAndHide(coin);
             coin.body.checkCollision.none = true;
-            // Add coin collection logic here (e.g., increase score)
         });
     }
-
+    
     handlePlayerMovement() {
-        // Ensure player exists before handling movement
         if (!this.player) return;
 
         let movementDirection = new Phaser.Math.Vector2(0, 0);
         if (this.controlKeys.right.isDown) {
-            movementDirection.x ++;
+            movementDirection.x++;
         }
         if (this.controlKeys.left.isDown) {
-            movementDirection.x --;
+            movementDirection.x--;
         }
         if (this.controlKeys.up.isDown) {
-            movementDirection.y --;
+            movementDirection.y--;
         }
         if (this.controlKeys.down.isDown) {
-            movementDirection.y ++;
+            movementDirection.y++;
         }
 
-        // Normalize vector if moving diagonally
         movementDirection.normalize();
-
-        // Set player velocity
         this.player.setVelocity(movementDirection.x * GameOptions.playerSpeed, movementDirection.y * GameOptions.playerSpeed);
     }
 
@@ -452,45 +524,50 @@ class PlayGame extends Phaser.Scene {
         });
     }
 
+    levelUP() {
+        this.playerLVL++;
+        this.playerXP -= this.nextLevelXP;
+        this.nextLevelXP = Math.floor(this.nextLevelXP * 1.2);
+        this.updateLevelText(); // This now updates both level and XP bar
+    }
+    
     moveEnemies() {
-        // Ensure player exists before moving enemies towards it
         if (!this.player) return;
 
         this.enemyGroup.getChildren().forEach((enemy) => {
-            // Ensure enemy is active before moving
             if (enemy.active) {
-                 this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
+                this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
             }
         });
     }
 
     updateGameTimer(delta) {
-        // Update elapsed time
         this.elapsedTime += delta;
 
-        // Update the bar every second
         if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
             this.updateTimeBar();
         }
 
-        // Check if time is up
         if (this.elapsedTime >= this.totalGameTime) {
-            this.gameOver(); // Call game over function
+            this.gameOver();
         }
     }
 
     gameOver() {
-        // Pause the game
         this.physics.pause();
-        // Ensure player exists before tinting
+        
         if (this.player) {
             this.player.setTint(0xff0000);
+            this.player.setAlpha(0.7);
         }
 
+        const centerX = this.cameras.main.width / 2;
+        const centerY = this.cameras.main.height / 2;
+
         // Game Over Text
-        const gameOverText = this.add.text(
-            this.cameras.main.centerX,
-            this.cameras.main.centerY - 50,
+        this.gameOverText = this.add.text(
+            centerX,
+            centerY - 50,
             'GAME OVER',
             { 
                 fontSize: '64px', 
@@ -499,25 +576,41 @@ class PlayGame extends Phaser.Scene {
                 stroke: '#000000',
                 strokeThickness: 5
             }
-        );
-        gameOverText.setOrigin(0.5);
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(10000);
 
         // Restart Text
-        const restartText = this.add.text(
-            this.cameras.main.centerX,
-            this.cameras.main.centerY + 50,
+        this.restartText = this.add.text(
+            centerX,
+            centerY + 50,
             'Pressione R para reiniciar',
             { 
                 fontSize: '24px', 
                 fill: '#ffffff',
                 fontFamily: 'Arial'
             }
-        );
-        restartText.setOrigin(0.5);
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(10000);
 
-        // Setup restart key
-        this.input.keyboard.once('keydown-R', () => {
+        // Fade-in effect
+        this.gameOverText.setAlpha(0);
+        this.restartText.setAlpha(0);
+        
+        if (this.tweens) {
+            this.tweens.add({
+                targets: [this.gameOverText, this.restartText],
+                alpha: 1,
+                duration: 500,
+                ease: 'Linear'
+            });
+        }
+
+        // Restart setup
+        this.input.keyboard?.once('keydown-R', () => {
             this.scene.restart();
         });
+
+        // Completa a barra de tempo
+        this.timeBar.clear()
+        .fillStyle(0xff0000, 1)
+        .fillRect(0, 0, this.cameras.main.width * 0.9, 20);
     }
 }
