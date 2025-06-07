@@ -27,6 +27,16 @@ class PlayGame extends Phaser.Scene {
     totalGameTime = 900000; // 15 minutes in milliseconds
     elapsedTime = 0;
 
+    // Map
+    tileSize = 256;
+    tileMap;
+    tileLayer;
+    tileset;
+    tileCache = new Set();
+    tileUpdateCounter = 0;
+    lastTileX = null;
+    lastTileY = null;
+
     // --- Constructor ---
     constructor(){
         super({
@@ -43,6 +53,7 @@ class PlayGame extends Phaser.Scene {
 
         // Game Objects
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
+        this.mapGeneration();
         this.enemyGroup = this.physics.add.group();
         this.bulletGroup = this.physics.add.group();
         this.coinGroup = this.physics.add.group();
@@ -81,6 +92,8 @@ class PlayGame extends Phaser.Scene {
         // Ensure player exists before updating health bar container position
         if (this.player) {
             this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
+            this.updateTilemapAroundPlayer(); // ✅ Now it's safe to call every frame
+            this.cleanFarTiles(this.player.x, this.player.y);
         }
 
         // Player Movement
@@ -97,6 +110,68 @@ class PlayGame extends Phaser.Scene {
     }
 
     // --- Custom Methods ---
+
+    mapGeneration() {
+        this.tileMap = this.make.tilemap({
+            tileWidth: this.tileSize,
+            tileHeight: this.tileSize,
+            width: 1000,
+            height: 1000
+        });
+
+        this.tileset = this.tileMap.addTilesetImage('tiles', null, this.tileSize, this.tileSize);
+        this.tileLayer = this.tileMap.createBlankLayer('Ground', this.tileset);
+        this.tileLayer.setDepth(-10); // Set behind everything
+
+        // Initially fill a few tiles around the player
+        this.updateTilemapAroundPlayer();
+
+    }
+
+    updateTilemapAroundPlayer(radius = 3) {
+        const playerTileX = Math.floor(this.player.x / this.tileSize);
+        const playerTileY = Math.floor(this.player.y / this.tileSize);
+
+        // Only regenerate if player entered a new tile
+        if (this.lastTileX === playerTileX && this.lastTileY === playerTileY) {
+            return; // Player is still in same tile — skip update
+        }
+
+        // Save new position
+        this.lastTileX = playerTileX;
+        this.lastTileY = playerTileY;
+
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                const tileX = playerTileX + dx;
+                const tileY = playerTileY + dy;
+                const key = `${tileX},${tileY}`;
+
+                if (!this.tileCache.has(key)) {
+                    const tileIndex = 0;
+                    this.tileLayer.putTileAt(tileIndex, tileX, tileY);
+                    this.tileCache.add(key);
+                }
+            }
+        }
+    }
+
+
+    cleanFarTiles(playerX, playerY, maxDistance = 10) {
+        const playerTileX = Math.floor(playerX / this.tileSize);
+        const playerTileY = Math.floor(playerY / this.tileSize);
+
+        this.tileCache.forEach((key) => {
+            const [tx, ty] = key.split(',').map(Number);
+            const dx = tx - playerTileX;
+            const dy = ty - playerTileY;
+
+            if (Math.abs(dx) > maxDistance || Math.abs(dy) > maxDistance) {
+                this.tileLayer.removeTileAt(tx, ty);
+                this.tileCache.delete(key);
+            }
+        });
+    }
 
     createTimeBar() {
         const barWidth = this.cameras.main.width * 0.9;
@@ -402,36 +477,6 @@ class PlayGame extends Phaser.Scene {
         if (this.elapsedTime >= this.totalGameTime) {
             this.gameOver(); // Call game over function
         }
-    }
-
-    mapGeneration(){
-        const tileWidth = 16;
-        const tileHeight = 16;
-        const mapWidth = 1600;
-        const mapHeight = 1200;
-
-        const mapData = [];
-        const grassyFieldIndex = 0;
-
-        for (let altura = 0; altura < mapHeight; altura++) {
-            const row = [];
-            for (let largura = 0; largura < mapWidth; largura++) {
-                row.push(grassyFieldIndex);
-            }
-            mapData.push(row);
-        }
-
-        this.map = this.make.tilemap({ data: mapData, tileWidth: tileWidth, tileHeight: tileHeight });
-
-        const tileset = this.map.addTilesetImage('grassy_field_tiles', null, tileWidth, tileHeight);
-
-        const layer = this.map.createLayer(0, tileset, 0, 0);
-
-        
-
-        // You might want to set the camera bounds if you have other game elements
-        // this.cameras.main.setBounds(0, 0, this.map.widthInPixels, this.map.heightInPixels);
-
     }
 
     gameOver() {
