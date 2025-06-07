@@ -13,6 +13,6 @@ var GameOptions = {
     enemySpeed              : 50,       // enemy speed, in pixels per second
     bulletSpeed             : 200,      // bullet speed, in pixels per second
     bulletRate              : 1000,     // bullet rate, in milliseconds per bullet
-    enemyRate               : 1000       // enemy rate, in milliseconds per enemy
+    enemyRate               : 1000,      // enemy rate, in milliseconds per enemy
     magnetRadius            : 100       // radius of the circle within which the coins are being attracted
 };
