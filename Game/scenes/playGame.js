@@ -2,6 +2,7 @@
 
 // PlayGame class extends Phaser.Scene class
 class PlayGame extends Phaser.Scene {
+
     // --- Properties ---
     controlKeys;
     player;
@@ -12,6 +13,9 @@ class PlayGame extends Phaser.Scene {
     // Player Stats
     playerHP = 5; // Initial health points
     isInvulnerable = false; // Invulnerability status
+    playerLVL = 1;
+    playerXP = 0;
+    nextLevelXP = 100;
 
     // UI Elements
     hpText = null; // Text object to display HP
@@ -23,7 +27,7 @@ class PlayGame extends Phaser.Scene {
     timeText = null; // Text object to display time
 
     // Game Timer
-    totalGameTime = 15 * 60 * 1000; // 15 minutes in milliseconds
+    totalGameTime = 900000; // 15 minutes in milliseconds
     elapsedTime = 0;
 
     // Map
@@ -32,15 +36,19 @@ class PlayGame extends Phaser.Scene {
     tileLayer;
     tileset;
     tileCache = new Set();
+    tileUpdateCounter = 0;
     lastTileX = null;
     lastTileY = null;
 
-    constructor() {
+    // --- Constructor ---
+    constructor(){
         super({
             key: 'PlayGame'
         });
     }
 
+    // --- Phaser Scene Methods ---
+    
     // method to be called once the instance has been created
     create() {
         // Camera setup
@@ -48,6 +56,8 @@ class PlayGame extends Phaser.Scene {
 
         // Game Objects
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
+        this.player.setDisplaySize(60, 60);
+        this.player.setSize(60, 60);
         this.mapGeneration();
         this.enemyGroup = this.physics.add.group();
         this.bulletGroup = this.physics.add.group();
@@ -59,6 +69,7 @@ class PlayGame extends Phaser.Scene {
         // UI Creation
         this.createTimeBar();
         this.createHealthBar();
+        this.createLevelUI();
 
         // Input Handling
         this.setupInput();
@@ -69,49 +80,74 @@ class PlayGame extends Phaser.Scene {
         // Collisions
         this.setupCollisions();
 
-        this.playerHP = 5;
-        this.isInvulnerable = false;
-        this.hpText.setText(`HP: ${this.playerHP}`);
-
         // Initial UI Update
-        this.updateHealthBar();
-        this.updateTimeBar();
+        this.updateHealthBar(); // Initialize health bar appearance
+        this.updateTimeBar(); // Initialize time bar appearance
+        this.updateLevelText();
 
-        // Set depths (z-index)
+        // Set depths (z-index) - Ensure enemies are below the time bar
         this.timeBarBg.setDepth(1000);
         this.timeBar.setDepth(1001);
         this.timeText.setDepth(1002);
-        this.enemyGroup.setDepth(100);
+        // if (this.timeBarBack) this.timeBarBack.setDepth(999); // timeBarBack is not defined in the original code
+        this.enemyGroup.setDepth(100); // Ensure enemies are below the time bar
     }
 
-    mapGeneration() {
-        // Cria um tilemap sem dimensões fixas
-        this.tileMap = this.make.tilemap({
-            tileWidth: this.tileSize,
-            tileHeight: this.tileSize
-        });
-
-        this.tileset = this.tileMap.addTilesetImage('tiles');
-        this.tileLayer = this.tileMap.createBlankLayer('Ground', this.tileset);
-        this.tileLayer.setDepth(-10);
-
-        // Inicializa o cache e as posições de referência
-        this.tileCache = new Set();
-        this.referenceX = 0;
-        this.referenceY = 0;
-        
-        // Gera área inicial
-        this.updateTilemapAroundPlayer(5);
+    // method to be called at each frame
+    update(time, delta) {
+        // Update UI positions
+        // Ensure player exists before updating health bar container position
+        if (this.player) {
+            this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
+            this.updateTilemapAroundPlayer(); // ✅ Now it's safe to call every frame
+            this.cleanFarTiles(this.player.x, this.player.y);
         }
 
+        // Player Movement
+        this.handlePlayerMovement();
+
+        // Coin Collection (Magnet effect)
+        this.collectCoins();
+
+        // Enemy Movement
+        this.moveEnemies();
+
+        // Game Timer Update
+        this.updateGameTimer(delta);
+    }
+
+    // --- Custom Methods ---
+
+    mapGeneration() {
+        this.tileMap = this.make.tilemap({
+            tileWidth: this.tileSize,
+            tileHeight: this.tileSize,
+            width: 1000,
+            height: 1000
+        });
+
+        this.tileset = this.tileMap.addTilesetImage('tiles', null, this.tileSize, this.tileSize);
+        this.tileLayer = this.tileMap.createBlankLayer('Ground', this.tileset);
+        this.tileLayer.setDepth(-10); // Set behind everything
+
+        // Initially fill a few tiles around the player
+        this.updateTilemapAroundPlayer();
+
+    }
+
     updateTilemapAroundPlayer(radius = 3) {
-        if (!this.player || !this.tileLayer) return;
+        const playerTileX = Math.floor(this.player.x / this.tileSize);
+        const playerTileY = Math.floor(this.player.y / this.tileSize);
 
-        // Calcula a posição do jogador em relação ao tilemap
-        const playerTileX = Math.floor((this.player.x - this.referenceX) / this.tileSize);
-        const playerTileY = Math.floor((this.player.y - this.referenceY) / this.tileSize);
+        // Only regenerate if player entered a new tile
+        if (this.lastTileX === playerTileX && this.lastTileY === playerTileY) {
+            return; // Player is still in same tile — skip update
+        }
 
-        // Gera novos tiles em todas as direções
+        // Save new position
+        this.lastTileX = playerTileX;
+        this.lastTileY = playerTileY;
+
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
                 const tileX = playerTileX + dx;
@@ -119,25 +155,9 @@ class PlayGame extends Phaser.Scene {
                 const key = `${tileX},${tileY}`;
 
                 if (!this.tileCache.has(key)) {
-                    try {
-                        // Posição absoluta no mundo
-                        const worldX = this.referenceX + (tileX * this.tileSize);
-                        const worldY = this.referenceY + (tileY * this.tileSize);
-                        
-                        // Usa o tile 0 como padrão
-                        this.tileLayer.putTileAt(0, tileX, tileY);
-                        
-                        // Ajusta a posição do tile no mundo
-                        const tile = this.tileLayer.getTileAt(tileX, tileY);
-                        if (tile) {
-                            tile.pixelX = worldX;
-                            tile.pixelY = worldY;
-                        }
-                        
-                        this.tileCache.add(key);
-                    } catch (error) {
-                        console.error(`Erro ao gerar tile (${tileX}, ${tileY}):`, error);
-                    }
+                    const tileIndex = 0;
+                    this.tileLayer.putTileAt(tileIndex, tileX, tileY);
+                    this.tileCache.add(key);
                 }
             }
         }
@@ -147,23 +167,16 @@ class PlayGame extends Phaser.Scene {
         const playerTileX = Math.floor(playerX / this.tileSize);
         const playerTileY = Math.floor(playerY / this.tileSize);
 
-        // Cria um novo Set para os tiles que devem ser mantidos
-        const newCache = new Set();
-
         this.tileCache.forEach((key) => {
             const [tx, ty] = key.split(',').map(Number);
             const dx = tx - playerTileX;
             const dy = ty - playerTileY;
-            const distance = Math.max(Math.abs(dx), Math.abs(dy));
 
-            if (distance <= maxDistance) {
-                newCache.add(key);
-            } else {
+            if (Math.abs(dx) > maxDistance || Math.abs(dy) > maxDistance) {
                 this.tileLayer.removeTileAt(tx, ty);
+                this.tileCache.delete(key);
             }
         });
-
-        this.tileCache = newCache;
     }
 
     createTimeBar() {
@@ -199,7 +212,7 @@ class PlayGame extends Phaser.Scene {
 
     updateTimeBar() {
         const barWidth = this.cameras.main.width * 0.9;
-        const timePercent = this.elapsedTime / this.totalGameTime;
+        const timePercent = this.elapsedTime / this.totalGameTime; // Changed from 1 - ...
 
         this.timeBar.clear()
             .fillStyle(0x00a8ff, 1);
@@ -219,18 +232,83 @@ class PlayGame extends Phaser.Scene {
     }
 
     createHealthBar() {
-        const barWidth = 80;
-        const barHeight = 10;
+        const barWidth = 80;  // Bar width
+        const barHeight = 10; // Bar height
 
-        this.healthBarBg = this.add.graphics();
-        this.healthBar = this.add.graphics();
+        this.healthBarBg = this.add.graphics(); // Background bar (gray)
+        this.healthBar = this.add.graphics();   // Red bar (current health)
 
-        // Position bars above player
-        this.healthBarContainer = this.add.container(this.player.x, this.player.y - 40);
+        // Position the bars above the player
+        // This will be updated in the update loop to follow the player
+        this.healthBarContainer = this.add.container(0, 0);
         this.healthBarContainer.add([this.healthBarBg, this.healthBar]);
 
         // HP Text
-        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {
+        this.hpText = this.add.text(30, 60, `HP: ${this.playerHP}`, {  // Positioned below the time bar
+            fontSize: '24px',
+            fill: '#fff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA', // Semi-transparent background
+            padding: { left: 10, right: 10, top: 5, bottom: 5 }
+        })
+        .setScrollFactor(0)
+        .setDepth(1003); // Ensure it's above everything else
+    }
+
+    updateHealthBar() {
+        const barWidth = 80;  // Bar width
+        const barHeight = 10; // Bar height
+        const healthPercent = this.playerHP / 5; // Calculate health percentage (assuming max HP is 5)
+
+        // Clear graphics
+        this.healthBarBg.clear();
+        this.healthBar.clear();
+
+        // Draw background bar (gray)
+        this.healthBarBg.fillStyle(0x333333, 1); // Dark gray
+        this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight); // Centered
+
+        // Draw red health bar
+        this.healthBar.fillStyle(0xff0000, 1); // Red
+        this.healthBar.fillRect(-barWidth/2, 0, barWidth * healthPercent, barHeight);
+
+        // Add white border (optional)
+        this.healthBarBg.lineStyle(1, 0xffffff, 1);
+        this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
+    }
+
+        createLevelUI() {
+        const xpBarWidth = this.cameras.main.width * 0.8;
+        const xpBarHeight = 20;
+        const xpBarX = this.cameras.main.width * 0.1;
+        const xpBarY = this.cameras.main.height - 40;
+
+        this.xpBarBg = this.add.graphics()
+            .fillStyle(0x333333, 1)
+            .fillRect(0, 0, xpBarWidth, xpBarHeight)
+            .setPosition(xpBarX, xpBarY)
+            .setScrollFactor(0)
+            .setDepth(1000);
+
+        this.xpBar = this.add.graphics()
+            .fillStyle(0xffff00, 1)
+            .fillRect(0, 0, 0, xpBarHeight)
+            .setPosition(xpBarX, xpBarY)
+            .setScrollFactor(0)
+            .setDepth(1001);
+
+        this.xpText = this.add.text(this.cameras.main.centerX, xpBarY - 22, `XP: ${this.playerXP} / ${this.nextLevelXP}`, {
+            fontSize: '18px',
+            fill: '#ffffff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000AA',
+            padding: { left: 10, right: 10, top: 2, bottom: 2 }
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(1002);
+
+        this.levelText = this.add.text(60, 100, `Level: ${this.playerLVL}`, {
             fontSize: '24px',
             fill: '#fff',
             fontFamily: 'Arial',
@@ -241,39 +319,30 @@ class PlayGame extends Phaser.Scene {
         .setDepth(1003);
     }
 
-    updateHealthBar() {
-        const barWidth = 80;
-        const barHeight = 10;
-        const healthPercent = this.playerHP / 5;
+    updateLevelText() {
+        this.levelText.setText(`Level: ${this.playerLVL}`);
+        this.xpText.setText(`XP: ${this.playerXP} / ${this.nextLevelXP}`);
 
-        this.healthBarBg.clear();
-        this.healthBar.clear();
+        const xpBarWidth = this.cameras.main.width * 0.8;
+        const xpPercent = Phaser.Math.Clamp(this.playerXP / this.nextLevelXP, 0, 1);
 
-        // Background
-        this.healthBarBg.fillStyle(0x333333, 1);
-        this.healthBarBg.fillRect(-barWidth/2, 0, barWidth, barHeight);
-
-        // Health
-        this.healthBar.fillStyle(0xff0000, 1);
-        this.healthBar.fillRect(-barWidth/2, 0, barWidth * healthPercent, barHeight);
-        
-        // Border
-        this.healthBarBg.lineStyle(1, 0xffffff, 1);
-        this.healthBarBg.strokeRect(-barWidth/2, 0, barWidth, barHeight);
+        this.xpBar.clear()
+            .fillStyle(0xffff00, 1)
+            .fillRect(0, 0, xpBarWidth * xpPercent, 20);
     }
 
     takeDamage() {
-        if (this.isInvulnerable) return;
+        if (this.isInvulnerable) return; // Ignore damage if invulnerable
 
         this.playerHP--;
         this.hpText.setText(`HP: ${this.playerHP}`);
-        this.updateHealthBar();
+        this.updateHealthBar(); // Update health bar visual
 
-        // Visual effect
+        // Visual damage effect
         this.isInvulnerable = true;
-        this.player.setTint(0xff0000);
+        this.player.setTint(0xff0000); // Turn red
 
-        // Blink player
+        // Piscar o jogador (Blink the player)
         const blinkInterval = this.time.addEvent({
             delay: 100,
             callback: () => {
@@ -282,7 +351,7 @@ class PlayGame extends Phaser.Scene {
             repeat: 10
         });
 
-        // Reset after 1 second
+        // Volta ao normal após 1 segundo (Return to normal after 1 second)
         this.time.delayedCall(1000, () => {
             this.isInvulnerable = false;
             this.player.clearTint();
@@ -298,19 +367,20 @@ class PlayGame extends Phaser.Scene {
     setupInput() {
         const keyboard = this.input.keyboard;
         this.controlKeys = keyboard.addKeys({
-            'up': Phaser.Input.Keyboard.KeyCodes.W,
-            'left': Phaser.Input.Keyboard.KeyCodes.A,
-            'down': Phaser.Input.Keyboard.KeyCodes.S,
-            'right': Phaser.Input.Keyboard.KeyCodes.D
+            'up'    : Phaser.Input.Keyboard.KeyCodes.W,
+            'left'  : Phaser.Input.Keyboard.KeyCodes.A,
+            'down'  : Phaser.Input.Keyboard.KeyCodes.S,
+            'right' : Phaser.Input.Keyboard.KeyCodes.D
         });
     }
 
     setupTimers() {
-        // Enemy spawn timer
+        // Timer event to add enemies
         this.time.addEvent({
             delay: GameOptions.enemyRate,
             loop: true,
             callback: () => {
+                // Get camera bounds
                 const camera = this.cameras.main;
                 const cameraBounds = new Phaser.Geom.Rectangle(
                     camera.scrollX,
@@ -319,6 +389,7 @@ class PlayGame extends Phaser.Scene {
                     camera.height
                 );
 
+                // Create a spawn area slightly larger than the camera (optional)
                 const spawnArea = new Phaser.Geom.Rectangle(
                     cameraBounds.x - 100,
                     cameraBounds.y - 100,
@@ -326,6 +397,7 @@ class PlayGame extends Phaser.Scene {
                     cameraBounds.height + 200
                 );
 
+                // Choose a random side (top, bottom, left, right)
                 const side = Phaser.Math.Between(0, 3);
                 let spawnPoint;
 
@@ -361,11 +433,11 @@ class PlayGame extends Phaser.Scene {
             }
         });
 
-        // Bullet firing timer
+        // Timer event to fire bullets
         this.time.addEvent({
-            delay: GameOptions.bulletRate,
-            loop: true,
-            callback: () => {
+            delay       : GameOptions.bulletRate,
+            loop        : true,
+            callback    : () => {
                 const closestEnemy = this.physics.closest(this.player, this.enemyGroup.getChildren());
                 if (closestEnemy !== null) {
                     const bullet = this.physics.add.sprite(this.player.x, this.player.y, 'bullet');
@@ -377,142 +449,122 @@ class PlayGame extends Phaser.Scene {
     }
 
     setupCollisions() {
-        // Player vs Enemy
+        // Player vs Enemy collision
         this.physics.add.collider(this.player, this.enemyGroup, () => {
-            this.takeDamage();
+            this.takeDamage(); // Call takeDamage function
         });
 
-        // Bullet vs Enemy
+        // Bullet vs Enemy collision
         this.physics.add.collider(this.bulletGroup, this.enemyGroup, (bullet, enemy) => {
+            (bullet.body).checkCollision.none = true;
+            (enemy.body).checkCollision.none = true;            
             const coin = this.physics.add.sprite(enemy.x, enemy.y, 'coin');
             coin.setDisplaySize(30, 30);
             coin.setSize(30, 30);
             this.coinGroup.add(coin);
             this.bulletGroup.killAndHide(bullet);
-            (bullet.body).checkCollision.none = true;
             this.enemyGroup.killAndHide(enemy);
-            (enemy.body).checkCollision.none = true;
         });
 
-        // Player vs Coin
+        // Player vs Coin collision
         this.physics.add.collider(this.player, this.coinGroup, (player, coin) => {
+            this.playerXP += 10;
+
+            if (this.playerXP >= this.nextLevelXP) {
+                this.levelUP();
+            } else {
+                this.updateLevelText(); // Update XP bar even if no level up
+            }
+
             this.coinGroup.killAndHide(coin);
             coin.body.checkCollision.none = true;
         });
     }
 
-    // method to be called at each frame
-    update(time, delta) {
-        // Update health bar position
-        if (this.player) {
-            this.healthBarContainer.setPosition(this.player.x, this.player.y - 40);
-            this.updateTilemapAroundPlayer();
-            this.cleanFarTiles(this.player.x, this.player.y);
-        
-            // Atualiza o mapa ao redor do jogador
-            this.updateTilemapAroundPlayer();
-            // Atualiza a posição de referência se o jogador sair da área central
-            const threshold = this.tileSize * 2;
-            if (Math.abs(this.player.x - this.referenceX) > threshold || Math.abs(this.player.y - this.referenceY) > threshold) {
-                this.referenceX = this.player.x;
-                this.referenceY = this.player.y;
-            }
-            // Remove tiles muito distantes
-            this.cleanFarTiles(this.player.x, this.player.y, 15); // Aumentamos o raiso de limpeza
-
-            // Atualiza o timer do jogo
-             this.elapsedTime += delta;
-    
-            // Atualiza a barra de tempo a cada segundo
-            if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
-                this.updateTimeBar();
-            }
-        }
-    
-
-        // Player movement
-        this.handlePlayerMovement();
-
-        // Coin collection
-        this.collectCoins();
-
-        // Enemy movement
-        this.moveEnemies();
-
-        // Game timer
-        this.updateGameTimer(delta);
-    }
-
     handlePlayerMovement() {
+        // Ensure player exists before handling movement
         if (!this.player) return;
 
         let movementDirection = new Phaser.Math.Vector2(0, 0);
         if (this.controlKeys.right.isDown) {
-            movementDirection.x++;
+            movementDirection.x ++;
         }
         if (this.controlKeys.left.isDown) {
-            movementDirection.x--;
+            movementDirection.x --;
         }
         if (this.controlKeys.up.isDown) {
-            movementDirection.y--;
+            movementDirection.y --;
         }
         if (this.controlKeys.down.isDown) {
-            movementDirection.y++;
+            movementDirection.y ++;
         }
 
+        // Normalize vector if moving diagonally
         movementDirection.normalize();
+
+        // Set player velocity
         this.player.setVelocity(movementDirection.x * GameOptions.playerSpeed, movementDirection.y * GameOptions.playerSpeed);
     }
 
     collectCoins() {
+        // Ensure player exists before collecting coins
         if (!this.player) return;
 
         const coinsInCircle = this.physics.overlapCirc(this.player.x, this.player.y, GameOptions.magnetRadius, true, true);
         coinsInCircle.forEach((body) => {
             const bodySprite = body.gameObject;
-            if (bodySprite.texture.key == 'coin') {
+            if (bodySprite.texture.key == 'coin'){
                 this.physics.moveToObject(bodySprite, this.player, 500);
             }
         });
     }
 
+    levelUP() {
+        this.playerLVL++;
+        this.playerXP -= this.nextLevelXP;
+        this.nextLevelXP = Math.floor(this.nextLevelXP * 1.2);
+        this.updateLevelText(); // This now updates both level and XP bar
+    }
+
     moveEnemies() {
+        // Ensure player exists before moving enemies towards it
         if (!this.player) return;
 
         this.enemyGroup.getChildren().forEach((enemy) => {
+            // Ensure enemy is active before moving
             if (enemy.active) {
-                this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
+                 this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
             }
         });
     }
 
     updateGameTimer(delta) {
+        // Update elapsed time
         this.elapsedTime += delta;
 
+        // Update the bar every second
         if (Math.floor(this.elapsedTime / 1000) > Math.floor((this.elapsedTime - delta) / 1000)) {
             this.updateTimeBar();
         }
 
+        // Check if time is up
         if (this.elapsedTime >= this.totalGameTime) {
-            this.gameOver();
+            this.gameOver(); // Call game over function
         }
     }
 
     gameOver() {
+        // Pause the game
         this.physics.pause();
-        
+        // Ensure player exists before tinting
         if (this.player) {
             this.player.setTint(0xff0000);
-            this.player.setAlpha(0.7);
         }
 
-        const centerX = this.cameras.main.width / 2;
-        const centerY = this.cameras.main.height / 2;
-
         // Game Over Text
-        this.gameOverText = this.add.text(
-            centerX,
-            centerY - 50,
+        const gameOverText = this.add.text(
+            this.cameras.main.centerX,
+            this.cameras.main.centerY - 50,
             'GAME OVER',
             { 
                 fontSize: '64px', 
@@ -521,41 +573,25 @@ class PlayGame extends Phaser.Scene {
                 stroke: '#000000',
                 strokeThickness: 5
             }
-        ).setOrigin(0.5).setScrollFactor(0).setDepth(10000);
+        );
+        gameOverText.setOrigin(0.5);
 
         // Restart Text
-        this.restartText = this.add.text(
-            centerX,
-            centerY + 50,
+        const restartText = this.add.text(
+            this.cameras.main.centerX,
+            this.cameras.main.centerY + 50,
             'Pressione R para reiniciar',
             { 
                 fontSize: '24px', 
                 fill: '#ffffff',
                 fontFamily: 'Arial'
             }
-        ).setOrigin(0.5).setScrollFactor(0).setDepth(10000);
+        );
+        restartText.setOrigin(0.5);
 
-        // Fade-in effect
-        this.gameOverText.setAlpha(0);
-        this.restartText.setAlpha(0);
-        
-        if (this.tweens) {
-            this.tweens.add({
-                targets: [this.gameOverText, this.restartText],
-                alpha: 1,
-                duration: 500,
-                ease: 'Linear'
-            });
-        }
-
-        // Restart setup
-        this.input.keyboard?.once('keydown-R', () => {
+        // Setup restart key
+        this.input.keyboard.once('keydown-R', () => {
             this.scene.restart();
         });
-
-        // Completa a barra de tempo
-        this.timeBar.clear()
-        .fillStyle(0xff0000, 1)
-        .fillRect(0, 0, this.cameras.main.width * 0.9, 20);
     }
 }
